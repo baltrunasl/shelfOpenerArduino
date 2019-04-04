@@ -17,18 +17,23 @@ Distributed as-is; no warranty is given.
 Example based off of demos by Brian Schmalz (designer of the Easy Driver).
 http://www.schmalzhaus.com/EasyDriver/Examples/EasyDriverExamples.html
 ******************************************************************************/
-//Declare pin functions on Redboard
+#include <IRremote.h>
+
+//Declare pin functions on arduino uno
 #define stp 2
 #define dir 3
 #define MS1 4
 #define MS2 5
 #define EN  6
+#define IR_RECV_PIN   11 //pin 11 is for infrared receiver
 #define HOME_SWITCH   8 // Pin 8 connected to Home Switch (MicroSwitch)
-#define BUTTON_PIN    9 // Pin 9 is connected to a button, that is always true. When pressed it goes to false
 
 #define OPEN_DOOR_STEPS 30000
-
 #define MICROSECONDS_DELAY 200
+
+//infrared decoded results are stored here
+decode_results results;
+IRrecv irrecv(IR_RECV_PIN);
 
 //Declare variables for functions
 char user_input;
@@ -43,19 +48,11 @@ void setup() {
   pinMode(MS2, OUTPUT);
   pinMode(EN, OUTPUT);
   pinMode(HOME_SWITCH, INPUT_PULLUP);
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
-
 
   resetEDPins(); //Set step, direction, microstep and enable pins to default states
+  irrecv.enableIRIn(); // Start the IR receiver
+  
   Serial.begin(9600); //Open Serial connection for debugging
-  Serial.println("Begin motor control");
-  Serial.println();
-  //Print function list for user selection
-  Serial.println("Enter number for control option:");
-  Serial.println("1. OpenDoor.");
-  Serial.println("2. CloseDoor.");
-  Serial.println();
-
   //we start with door closed as it is a known position
   delay(100);
   digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
@@ -64,29 +61,22 @@ void setup() {
 
 //Main loop
 void loop() {
-  while (Serial.available()) {
-      user_input = Serial.read(); //Read user input and trigger appropriate function
-      digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
-
-      if (user_input =='1')
-      {
-         OpenDoor();
-      }
-      else if(user_input =='2')
-      {
-        CloseDoor();
-      }
-      else
-      {
-        Serial.println("Invalid option entered.");
-      }
-      resetEDPins();
+  digitalWrite(EN, LOW); //Pull enable pin low to allow motor control
+  if (irrecv.decode(&results)) {
+    if (results.value == 0x4CB340BF){
+      Serial.println("ON");
+      OpenDoor();
+    }else if (results.value == 0x4CB3748B){
+      Serial.println("OFF");
+      CloseDoor();
+    }
+    resetEDPins();
+    irrecv.resume(); // Receive the next value
   }
 }
 
 //Reset Easy Driver pins to default states
-void resetEDPins()
-{
+void resetEDPins(){
   digitalWrite(stp, LOW);
   digitalWrite(dir, LOW);
   digitalWrite(MS1, LOW);
@@ -95,19 +85,18 @@ void resetEDPins()
 }
 
 //Default microstep mode function
-void OpenDoor()
-{
-  Serial.println("Opening Door.");
+void OpenDoor(){
+  Serial.println("Opening Door. But was it closed?");
+  Serial.println(isDoorClosed());
+  if (isDoorClosed()){
   digitalWrite(dir, LOW); //Pull direction pin low to move "forward"
-  for(x= 1; x<OPEN_DOOR_STEPS; x++)  //Loop the forward till the door is open
-  {
-    digitalWrite(stp,HIGH); //Trigger one step forward
-    delayMicroseconds(MICROSECONDS_DELAY);
-    digitalWrite(stp,LOW); //Pull step pin low so it can be triggered again
-    delayMicroseconds(MICROSECONDS_DELAY);
+    for(x= 1; x<OPEN_DOOR_STEPS; x++){  //Loop the forward till the door is open  
+      digitalWrite(stp,HIGH); //Trigger one step forward
+      delayMicroseconds(MICROSECONDS_DELAY);
+      digitalWrite(stp,LOW); //Pull step pin low so it can be triggered again
+      delayMicroseconds(MICROSECONDS_DELAY);
+    }
   }
-  Serial.println("Enter new option");
-  Serial.println();
 }
 
 /**
@@ -118,23 +107,15 @@ bool isDoorClosed(){
   return digitalRead(HOME_SWITCH);
 }
 
-bool isButtonPressed(){
-  return !digitalRead(BUTTON_PIN);
-}
-
 //Reverse default microstep mode function
-void CloseDoor()
-{
+void CloseDoor(){
   Serial.println("Closing Door. But was it closed?");
   Serial.println(isDoorClosed());
   digitalWrite(dir, HIGH); //Pull direction pin high to move in "reverse"
-  while(!isDoorClosed())  //Loop the stepping while the limitin switch is not pressed
-  {
+  while(!isDoorClosed()){  //Loop the stepping while the limitin switch is not pressed
       digitalWrite(stp,HIGH); //Trigger one step
       delayMicroseconds(MICROSECONDS_DELAY);
       digitalWrite(stp,LOW); //Pull step pin low so it can be triggered again
       delayMicroseconds(MICROSECONDS_DELAY);
   }
-  Serial.println("Enter new option");
-  Serial.println();
 }
